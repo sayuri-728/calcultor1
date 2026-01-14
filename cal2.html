@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>FX証拠金・ロスカット計算機</title>
+    <style>
+        body { font-family: sans-serif; padding: 10px; background: #f0f4f8; margin: 0; }
+        .box { background: white; padding: 15px 20px; border-radius: 12px; max-width: 420px; margin: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h2 { text-align: center; margin: 0 0 15px 0; color: #2c3e50; font-size: 18px; }
+        
+        .input-group { margin-bottom: 10px; }
+        label { display: block; font-weight: bold; font-size: 12px; color: #444; margin-bottom: 3px; }
+        input, select { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        /* 結果表示エリア */
+        .results-container { margin-top: 15px; display: grid; grid-template-columns: 1fr 1.2fr 1.2fr; gap: 10px; }
+        .result-card { padding: 12px 5px; border-radius: 10px; text-align: center; border: 2px solid #edf2f7; }
+        
+        /* ロスカットレートの強調 */
+        .card-danger { background: #fff5f5; border-color: #feb2b2; grid-column: span 3; }
+        .card-info { background: #ebf8ff; border-color: #90cdf4; }
+        .card-success { background: #f0fff4; border-color: #9ae6b4; }
+
+        .res-label { font-size: 11px; font-weight: bold; color: #4a5568; margin-bottom: 5px; }
+        .res-value { font-size: 18px; font-weight: bold; color: #2d3748; }
+        #resLcRate { color: #e53e3e; font-size: 28px; }
+        .res-unit { font-size: 11px; margin-left: 2px; }
+
+        .note { font-size: 11px; color: #718096; margin-top: 15px; line-height: 1.5; background: #f7fafc; padding: 10px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>証拠金・ロスカット計算機</h2>
+
+    <div class="input-group">
+        <label>通貨ペア種別</label>
+        <select id="type" onchange="changeType()">
+            <option value="jpy">クロス円 (USD/JPY等)</option>
+            <option value="usd">ドルストレート (EUR/USD等)</option>
+            <option value="eurgbp">ユーロポンド (EUR/GBP)</option>
+        </select>
+    </div>
+
+    <div class="grid-2">
+        <div class="input-group">
+            <label>売買</label>
+            <select id="side" onchange="run()">
+                <option value="buy">買い</option>
+                <option value="sell">売り</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <label>エントリーレート</label>
+            <input type="number" id="entry" value="150.000" step="0.001" oninput="run()">
+        </div>
+    </div>
+
+    <div class="input-group">
+        <label>口座残高 (円)</label>
+        <input type="text" id="balance" value="100,000" oninput="formatAndRun(this)">
+    </div>
+
+    <div class="grid-2">
+        <div class="input-group">
+            <label>取引数量 (通貨)</label>
+            <input type="text" id="qty" value="10,000" oninput="formatAndRun(this)">
+        </div>
+        <div class="input-group">
+            <label>最大レバレッジ (倍)</label>
+            <input type="number" id="maxLev" value="25" oninput="run()">
+        </div>
+    </div>
+
+    <div id="rateBox" style="display:none;">
+        <div class="input-group">
+            <label id="rateLabel">対円レート (ドル円など)</label>
+            <input type="number" id="baseRate" value="150.00" step="0.01" oninput="run()">
+        </div>
+    </div>
+
+    <div class="results-container">
+        <div class="result-card card-danger">
+            <div class="res-label">ロスカットレート</div>
+            <div class="res-value" id="resLcRate">---</div>
+            <div style="font-size: 13px; color: #e53e3e; font-weight: bold; margin-top: 5px;">
+                あと <span id="resPipsToLc">---</span> pips でロスカット
+            </div>
+        </div>
+
+        <div class="result-card card-info">
+            <div class="res-label">必要証拠金</div>
+            <div class="res-value" id="resMargin">---</div><span class="res-unit">円</span>
+        </div>
+        <div class="result-card card-info">
+            <div class="res-label">証拠金維持率</div>
+            <div class="res-value" id="resRatio">---</div><span class="res-unit">%</span>
+        </div>
+        <div class="result-card card-success">
+            <div class="res-label">実効レバレッジ</div>
+            <div class="res-value" id="resEffLev">---</div><span class="res-unit">倍</span>
+        </div>
+    </div>
+
+    <div class="note">
+        ※ 証拠金維持率100%でロスカットと仮定しています。
+    </div>
+</div>
+
+<script>
+// カンマ区切りのフォーマットを適用しながら計算を実行する
+function formatAndRun(input) {
+    let value = input.value.replace(/,/g, '');
+    if (!isNaN(value) && value !== '') {
+        input.value = Number(value).toLocaleString();
+    }
+    run();
+}
+
+// 文字列(カンマ付き)を数値に変換する
+function getVal(id) {
+    const val = document.getElementById(id).value.replace(/,/g, '');
+    return parseFloat(val) || 0;
+}
+
+function changeType() {
+    const type = document.getElementById('type').value;
+    const entry = document.getElementById('entry');
+    const baseRate = document.getElementById('baseRate');
+    const rateBox = document.getElementById('rateBox');
+    const rateLabel = document.getElementById('rateLabel');
+
+    if (type === 'eurgbp') {
+        rateBox.style.display = 'block';
+        rateLabel.innerText = "ポンド円レート (GBP/JPY)";
+        if (parseFloat(entry.value) > 5) entry.value = "0.85000";
+        baseRate.value = "200.00";
+    } else if (type === 'usd') {
+        rateBox.style.display = 'block';
+        rateLabel.innerText = "ドル円レート (USD/JPY)";
+        if (parseFloat(entry.value) > 5) entry.value = "1.08000";
+        baseRate.value = "150.00";
+    } else {
+        rateBox.style.display = 'none';
+        if (parseFloat(entry.value) < 5) entry.value = "150.000";
+    }
+    run();
+}
+
+function run() {
+    const type = document.getElementById('type').value;
+    const side = document.getElementById('side').value;
+    const entry = parseFloat(document.getElementById('entry').value) || 0;
+    const balance = getVal('balance');
+    const qty = getVal('qty');
+    const maxLev = parseFloat(document.getElementById('maxLev').value) || 1;
+    const baseRate = parseFloat(document.getElementById('baseRate').value) || 1;
+
+    if (qty <= 0 || entry <= 0 || balance <= 0) return;
+
+    // 必要証拠金の計算
+    let calcRate = (type === 'jpy') ? entry : (entry * baseRate);
+    let requiredMargin = (calcRate * qty) / maxLev;
+
+    // 証拠金維持率
+    let marginRatio = (balance / requiredMargin) * 100;
+
+    // 実効レバレッジ
+    let effectiveLev = (calcRate * qty) / balance;
+
+    // ロスカットレート計算
+    let allowableLoss = balance - requiredMargin;
+    let diffPerQty = allowableLoss / qty;
+    let pipsUnit = (type === 'jpy') ? 0.01 : 0.0001;
+    let lcDiff = (type === 'jpy') ? diffPerQty : (diffPerQty / baseRate);
+
+    let lcRate = (side === 'buy') ? (entry - lcDiff) : (entry + lcDiff);
+    let pipsToLc = Math.abs(entry - lcRate) / pipsUnit;
+
+    // 表示反映
+    document.getElementById('resMargin').innerText = Math.round(requiredMargin).toLocaleString();
+    document.getElementById('resRatio').innerText = Math.round(marginRatio).toLocaleString();
+    document.getElementById('resEffLev').innerText = effectiveLev.toFixed(2);
+    document.getElementById('resLcRate').innerText = lcRate.toFixed(3);
+    document.getElementById('resPipsToLc').innerText = Math.round(pipsToLc).toLocaleString();
+}
+
+window.onload = run;
+</script>
+
+</body>
+</html>
