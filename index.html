@@ -16,7 +16,6 @@
         body { font-family: sans-serif; padding: 10px; background: var(--bg-color); margin: 0; }
         .container { max-width: 450px; margin: auto; }
         
-        /* タブ切り替えのデザイン */
         .tabs { display: flex; margin-bottom: 10px; background: #e2e8f0; border-radius: 8px; padding: 4px; }
         .tab-btn { flex: 1; padding: 10px; border: none; background: none; cursor: pointer; border-radius: 6px; font-weight: bold; color: #4a5568; transition: 0.3s; }
         .tab-btn.active { background: white; color: var(--primary-color); box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -32,7 +31,6 @@
         
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-        /* 結果エリア共通 */
         .results-container { margin-top: 15px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .result-card { padding: 12px 5px; border-radius: 10px; text-align: center; border: 2px solid #edf2f7; }
         .card-danger { background: #fff5f5; border-color: #feb2b2; grid-column: span 3; }
@@ -43,6 +41,7 @@
         .res-label { font-size: 11px; font-weight: bold; color: #4a5568; margin-bottom: 5px; }
         .res-value { font-size: 18px; font-weight: bold; color: #2d3748; }
         #resLcRate { color: #e53e3e; font-size: 28px; }
+        #m_resPipsToLc { color: #e53e3e; font-weight: bold; }
         .res-unit { font-size: 11px; margin-left: 2px; }
 
         .note { font-size: 11px; color: #718096; margin-top: 15px; line-height: 1.5; background: #f7fafc; padding: 10px; border-radius: 6px; white-space: pre-line; }
@@ -103,7 +102,7 @@
         <h2>証拠金・ロスカット計算</h2>
         <div class="input-group">
             <label>通貨ペア種別</label>
-            <select id="m_type" onchange="marginRun()">
+            <select id="m_type" onchange="marginChangeType()">
                 <option value="jpy">クロス円 (USD/JPY等)</option>
                 <option value="usd">ドルストレート (EUR/USD等)</option>
                 <option value="eurgbp">ユーロポンド (EUR/GBP)</option>
@@ -146,8 +145,8 @@
             <div class="result-card card-danger">
                 <div class="res-label">ロスカットレート</div>
                 <div class="res-value" id="resLcRate">---</div>
-                <div style="font-size: 13px; color: #e53e3e; font-weight: bold; margin-top: 5px;">
-                    あと <span id="resPipsToLc">---</span> pips でロスカット
+                <div style="font-size: 13px; margin-top: 5px;">
+                    あと <span id="m_resPipsToLc">---</span> pips でロスカット
                 </div>
             </div>
             <div class="result-card card-info">
@@ -168,13 +167,10 @@
 </div>
 
 <script>
-// --- 共通機能 ---
 function showTab(tabId) {
     document.querySelectorAll('.box').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.getElementById(tabId).classList.add('active');
-    
-    // イベントからボタンを特定（クリックされたボタンにactiveをつける）
     const btns = document.querySelectorAll('.tab-btn');
     if(tabId === 'profitTab') btns[0].classList.add('active');
     else btns[1].classList.add('active');
@@ -189,7 +185,28 @@ function parseVal(id) {
     return parseFloat(document.getElementById(id).value.replace(/,/g, '')) || 0;
 }
 
-// --- 証拠金計算ロジック ---
+// --- 証拠金・ロスカット計算 ---
+function marginChangeType() {
+    const type = document.getElementById('m_type').value;
+    const rateBox = document.getElementById('m_rateBox');
+    const rateLabel = document.getElementById('m_rateLabel');
+    const entry = document.getElementById('m_entry');
+
+    if (type === 'jpy') {
+        rateBox.style.display = 'none';
+        if (parseFloat(entry.value) < 2) entry.value = "150.000";
+    } else if (type === 'usd') {
+        rateBox.style.display = 'block';
+        rateLabel.innerText = "ドル円レート (USD/JPY)";
+        if (parseFloat(entry.value) > 2) entry.value = "1.08000";
+    } else if (type === 'eurgbp') {
+        rateBox.style.display = 'block';
+        rateLabel.innerText = "ポンド円レート (GBP/JPY)";
+        if (parseFloat(entry.value) > 2) entry.value = "0.85000";
+    }
+    marginRun();
+}
+
 function marginRun() {
     const type = document.getElementById('m_type').value;
     const side = document.getElementById('m_side').value;
@@ -198,9 +215,6 @@ function marginRun() {
     const qty = parseVal('m_qty');
     const maxLev = parseVal('m_maxLev');
     const baseRate = parseVal('m_baseRate');
-
-    const rateBox = document.getElementById('m_rateBox');
-    rateBox.style.display = (type === 'jpy') ? 'none' : 'block';
 
     if (qty <= 0 || entry <= 0 || balance <= 0) return;
 
@@ -218,25 +232,32 @@ function marginRun() {
     document.getElementById('resRatio').innerText = Math.round(marginRatio).toLocaleString();
     document.getElementById('resEffLev').innerText = effectiveLev.toFixed(2);
     document.getElementById('resLcRate').innerText = lcRate.toFixed(3);
-    document.getElementById('resPipsToLc').innerText = Math.round(pipsToLc).toLocaleString();
+    document.getElementById('m_resPipsToLc').innerText = Math.round(pipsToLc).toLocaleString();
 }
 
-// --- 損益計算ロジック ---
+// --- 損益計算 ---
 function profitChangeType() {
     const type = document.getElementById('p_type').value;
+    const rateBox = document.getElementById('p_rateBox');
+    const rateLabel = document.getElementById('p_rateLabel');
+    const note = document.getElementById('p_note');
     const entry = document.getElementById('p_entry');
     const settle = document.getElementById('p_settle');
-    const rateBox = document.getElementById('p_rateBox');
-    const note = document.getElementById('p_note');
 
     if (type === 'jpy') {
         rateBox.style.display = 'none';
         note.innerText = "pips計算: 0.01 = 1pips\n損益計算: pips × 0.01 × 数量";
         if (parseFloat(entry.value) < 2) { entry.value = "150.000"; settle.value = "150.500"; }
-    } else {
+    } else if (type === 'usd') {
         rateBox.style.display = 'block';
-        note.innerText = "pips計算: 0.0001 = 1pips\n損益計算: pips × 数量 × 対円レート";
+        rateLabel.innerText = "ドル円レート (USD/JPY)";
+        note.innerText = "pips計算: 0.0001 = 1pips\n損益計算: pips × 数量 × ドル円";
         if (parseFloat(entry.value) > 2) { entry.value = "1.08000"; settle.value = "1.08500"; }
+    } else if (type === 'eurgbp') {
+        rateBox.style.display = 'block';
+        rateLabel.innerText = "ポンド円レート (GBP/JPY)";
+        note.innerText = "pips計算: 0.0001 = 1pips\n損益計算: pips × 数量 × ポンド円";
+        if (parseFloat(entry.value) > 2) { entry.value = "0.85000"; settle.value = "0.85500"; }
     }
     profitRun();
 }
@@ -258,9 +279,7 @@ function profitRun() {
     document.getElementById('resProfit').innerText = Math.round(profit).toLocaleString();
 }
 
-// 初期化
 window.onload = () => { marginRun(); profitRun(); };
 </script>
-
 </body>
 </html>
