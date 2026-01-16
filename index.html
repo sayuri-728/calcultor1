@@ -232,8 +232,12 @@ function marginRun() {
     document.getElementById('resRatio').innerText = Math.round(marginRatio).toLocaleString();
     document.getElementById('resEffLev').innerText = effectiveLev.toFixed(2);
     
-    // ロスカットレートの表示桁数を5桁に変更
-    document.getElementById('resLcRate').innerText = lcRate.toFixed(5);
+    // ロスカットレートの表示桁数：クロス円なら3桁、それ以外は5桁
+    if (type === 'jpy') {
+        document.getElementById('resLcRate').innerText = lcRate.toFixed(3);
+    } else {
+        document.getElementById('resLcRate').innerText = lcRate.toFixed(5);
+    }
     
     document.getElementById('m_resPipsToLc').innerText = Math.round(pipsToLc).toLocaleString();
 }
